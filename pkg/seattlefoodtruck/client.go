@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -22,47 +23,70 @@ var (
 	xmlCheck  = regexp.MustCompile("(?i:[application|text]/xml)")
 )
 
-//APIClient represents seattlefoodtruck API client
-type APIClient struct {
-	cfg    *Configuration
-	common service
-
-	NeighborhoodAPI *NeighborhoodsAPIService
+//Client seattle food truck client interface
+type Client interface {
+	GetNeighborhoods() ([]*Neighborhood, error)
 }
 
-type service struct {
-	client *APIClient
+type seattleFoodTruckClient struct {
+	ctx context.Context
+	cfg *Configuration
 }
 
-// NewAPIClient creates a new API client. Requires a userAgent string describing your application.
-// optionally a custom http.Client to allow for advanced features such as caching.
-func NewAPIClient(cfg *Configuration) *APIClient {
+// NewClient seattle foodtruck client proxy
+func NewClient(cfg *Configuration) Client {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = http.DefaultClient
 	}
 
-	c := &APIClient{}
-	c.cfg = cfg
-	c.common.client = c
+	return &seattleFoodTruckClient{
+		ctx: context.Background(),
+	}
+}
 
-	//API services
-	c.NeighborhoodAPI = (*NeighborhoodsAPIService)(&c.common)
+func (c *seattleFoodTruckClient) GetNeighborhoods() ([]*Neighborhood, error) {
+	var (
+		httpMethod  = strings.ToUpper("get")
+		returnValue []*Neighborhood
+		payload     interface{}
+	)
+	endpoint := fmt.Sprintf("%s/%s", c.cfg.BasePath, "/neighborhoods")
 
-	return c
+	queryParams := url.Values{}
+	headers := make(map[string]string)
+	headers["Content-Type"] = "application/json"
+	headers["Accept"] = "application/json"
+
+	r, err := c.prepareRequest(c.ctx, endpoint, httpMethod, payload, headers, queryParams)
+	if err != nil {
+		return nil, err
+	}
+	httpResponse, err := c.callAPI(r)
+	if err != nil || httpResponse == nil {
+		return nil, err
+	}
+	defer httpResponse.Body.Close()
+	responsePayload, err := ioutil.ReadAll(httpResponse.Body)
+	if err != nil {
+		return nil, err
+	}
+	if httpResponse.StatusCode == 200 {
+		err = decode(&returnValue, responsePayload, httpResponse.Header.Get("Content-Type"))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return returnValue, nil
 }
 
 // callAPI do the request.
-func (c *APIClient) callAPI(request *http.Request) (*http.Response, error) {
+func (c *seattleFoodTruckClient) callAPI(request *http.Request) (*http.Response, error) {
 	return c.cfg.HTTPClient.Do(request)
 }
 
-//ChangeBasePath Change base path to allow switching to mocks
-func (c *APIClient) ChangeBasePath(path string) {
-	c.cfg.BasePath = path
-}
-
 // prepareRequest build the request
-func (c *APIClient) prepareRequest(
+func (c *seattleFoodTruckClient) prepareRequest(
 	ctx context.Context,
 	path string, method string,
 	postBody interface{},
@@ -136,7 +160,7 @@ func (c *APIClient) prepareRequest(
 	return localVarRequest, nil
 }
 
-func (c *APIClient) decode(v interface{}, b []byte, contentType string) (err error) {
+func decode(v interface{}, b []byte, contentType string) (err error) {
 	if strings.Contains(contentType, "application/xml") {
 		if err = xml.Unmarshal(b, v); err != nil {
 			return err

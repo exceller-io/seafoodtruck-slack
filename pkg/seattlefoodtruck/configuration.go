@@ -15,7 +15,9 @@ type Configuration struct {
 //NewConfiguration returns an instance of Configuration
 func NewConfiguration() *Configuration {
 	cfg := &Configuration{
-		BasePath:      "https://www.seattlefoodtruck.com/api",
+		Scheme:        "https",
+		Host:          "www.seattlefoodtruck.com",
+		BasePath:      "/api",
 		DefaultHeader: make(map[string]string),
 		UserAgent:     "seafoodtruck-slack/1.0.0/go",
 	}
