@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -150,24 +151,13 @@ func respond(event *slackevents.AppMentionEvent) {
 }
 
 func showHelp(channel string) {
-	msg := "*You can ask me*"
-	attachments := []slack.Attachment{
-		slack.Attachment{
-			Title: helpCmd,
-			Color: green,
-		},
-		slack.Attachment{
-			Title: showNeighborhoodsCmd,
-			Color: green,
-		},
-		slack.Attachment{
-			Title: showLocationsCmd,
-			Color: green,
-		},
-		slack.Attachment{
-			Title: showTrucksCmd,
-			Color: green,
-		},
+	title := "*You can ask me*"
+	commands := fmt.Sprintf("%s \n %s \n %s \n %s", helpCmd, showNeighborhoodsCmd, showLocationsCmd, showTrucksCmd)
+	attachment := slack.Attachment{
+		Title:      commands,
+		Color:      green,
+		Footer:     "Slack API",
+		FooterIcon: "https://platform.slack-edge.com/img/default_application_icon.png",
 	}
-	api.PostMessage(channel, slack.MsgOptionText(msg, false), slack.MsgOptionAttachments(attachments...))
+	api.PostMessage(channel, slack.MsgOptionText(title, false), slack.MsgOptionAttachments(attachment))
 }
