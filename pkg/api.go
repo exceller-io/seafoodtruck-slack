@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -94,6 +95,66 @@ func (a *API) FindTrucks(neighborhood string, locations []string, at string) ([]
 	return ret, nil
 }
 
+//GetLocation returns location for identifier passed
+func (a *API) GetLocation(id string) (*Location, error) {
+	if len(id) == 0 {
+		return nil, errors.New("Location id is required")
+	}
+	path := fmt.Sprintf("/locations/%s", id)
+	endpoint := fmt.Sprintf("%s://%s%s/%s", a.Scheme, a.Host, a.BasePath, path)
+
+	//setup request
+	httpRequest, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	//call api
+	httpResponse, err := a.HttpClient.Do(httpRequest)
+	if err != nil {
+		return nil, err
+	}
+	defer httpResponse.Body.Close()
+	responsePayload, err := ioutil.ReadAll(httpResponse.Body)
+	if err != nil {
+		return nil, err
+	}
+	var ret Location
+	if err := json.Unmarshal(responsePayload, &ret); err != nil {
+		return nil, err
+	}
+	return &ret, nil
+}
+
+//GetNeighborhood returns neighborhood for identifier passed
+func (a *API) GetNeighborhood(id int) (*Neighborhood, error) {
+	if id == 0 {
+		return nil, errors.New("Neighborhood id is required")
+	}
+	path := fmt.Sprintf("/neighborhoods/%v", id)
+	endpoint := fmt.Sprintf("%s://%s%s/%s", a.Scheme, a.Host, a.BasePath, path)
+
+	//setup request
+	httpRequest, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	//call api
+	httpResponse, err := a.HttpClient.Do(httpRequest)
+	if err != nil {
+		return nil, err
+	}
+	defer httpResponse.Body.Close()
+	responsePayload, err := ioutil.ReadAll(httpResponse.Body)
+	if err != nil {
+		return nil, err
+	}
+	var ret Neighborhood
+	if err := json.Unmarshal(responsePayload, &ret); err != nil {
+		return nil, err
+	}
+	return &ret, nil
+}
+
 //LocationsAPIResponse represents a response from locations api that returns locations served
 //in neighborhood served with event bookings for a today or tomorrow
 type LocationsAPIResponse struct {
@@ -146,6 +207,18 @@ type Location struct {
 			FeaturedPhoto  string   `json:"featured_photo"`
 		} `json:"trucks"`
 	} `json:"events"`
+}
+
+//Neighborhood is neighborhood served by seattlefoodtruck
+type Neighborhood struct {
+	Name        string `json:"name"`
+	Latitude    string `json:"latitude"`
+	Longitude   string `json:"longitude"`
+	Description string `json:"description"`
+	ZoomLevel   int    `json:"zoom_level"`
+	Photo       string `json:"photo"`
+	ID          string `json:"id"`
+	UID         int    `json:"uid"`
 }
 
 func trimSpaceAndLower(s string) string {

@@ -119,6 +119,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(r.Challenge))
 		break
 	case slackevents.CallbackEvent:
+		fmt.Print("Received event")
 		innerEvent := event.InnerEvent
 		switch ev := innerEvent.Data.(type) {
 		case *slackevents.AppMentionEvent:
@@ -135,7 +136,7 @@ func formatDate(t time.Time) string {
 }
 
 func respond(event *slackevents.AppMentionEvent) {
-	var loc, hood, at string
+	var loc, at string
 	var err error
 
 	logger.Infof("Channel: %s", event.Channel)
@@ -145,7 +146,7 @@ func respond(event *slackevents.AppMentionEvent) {
 	text = text[i+1 : len(text)]
 	logger.Infof("Text %s", text)
 	if strings.Contains(text, findTrucksCmd) {
-		if text, loc, hood, at, err = parseTokensFromMsg(text); err != nil {
+		if text, loc, at, err = parseTokensFromMsg(text); err != nil {
 			logger.Errorf("Error parsing message: %v", zap.Any("Error", err))
 		}
 	}
@@ -155,7 +156,7 @@ func respond(event *slackevents.AppMentionEvent) {
 		showHelp(event.Channel)
 		break
 	case findTrucksCmd:
-		findTrucks(event.Channel, loc, hood, at)
+		findTrucks(event.Channel, loc, at)
 		break
 	default:
 		api.PostMessage(event.Channel, slack.MsgOptionText("Sorry I cannot help you with this, please try help to see things you can ask me",
@@ -163,15 +164,36 @@ func respond(event *slackevents.AppMentionEvent) {
 	}
 }
 
-func findTrucks(channel, loc, hood, at string) {
+func findTrucks(channel, loc, at string) {
 	var locs = []string{loc}
-	if len(loc) > 0 && len(hood) > 0 {
+	var hood string
+	var l *pkg.Location
+	var n *pkg.Neighborhood
+	var err error
+
+	if l, err = proxy.GetLocation(loc); err != nil {
+		logger.Errorw("Error getting location: %v", zap.Any("error", err))
+		api.PostMessage(channel,
+			slack.MsgOptionText("Sorry having issues processing your request. Please try again...", false))
+		return
+	}
+	logger.Infof("Neighborhood ID %v for location: %s", l.Neighborhood.ID, loc)
+	if n, err = proxy.GetNeighborhood(l.Neighborhood.ID); err != nil {
+		logger.Errorw("Error getting neighborhood for identifier %s %v", l.Neighborhood.ID, zap.Any("error", err))
+		api.PostMessage(channel,
+			slack.MsgOptionText("Sorry having issues processing your request, please try again...", false))
+		return
+	}
+	hood = n.ID
+	logger.Infof("Got neighborhood id %s. Now finding events booked at location", n.ID)
+	if len(loc) > 0 {
 		locations, err := proxy.FindTrucks(hood, locs, at)
 		if err != nil {
-			logger.Infof("Error finding trucks: %v", zap.Any("error", err))
+			logger.Errorw("Error finding trucks: %v", zap.Any("error", err))
 		}
 		logger.Infof("Locations : %v", len(locations))
 		for _, l := range locations {
+			logger.Infof("Events %v booked at location %s", len(l.Events), l.Name)
 			for _, e := range l.Events {
 				st, _ := time.Parse(time.RFC3339, e.StartTime)
 				et, _ := time.Parse(time.RFC3339, e.EndTime)
@@ -207,11 +229,11 @@ func findTrucks(channel, loc, hood, at string) {
 	}
 }
 
-func parseTokensFromMsg(msg string) (string, string, string, string, error) {
-	var cmd, loc, hood, at string
+func parseTokensFromMsg(msg string) (string, string, string, error) {
+	var cmd, loc, at string
 	l := len(msg)
 	if l == 0 {
-		return "", "", "", "", errors.New("Message is empty, nothing to do")
+		return "", "", "", errors.New("Message is empty, nothing to do")
 	}
 	i := strings.Index(msg, " at")
 	if i > 0 {
@@ -219,28 +241,22 @@ func parseTokensFromMsg(msg string) (string, string, string, string, error) {
 		cmd = strings.ToLower(cmd)
 		cmd = strings.TrimSpace(cmd)
 	}
-	j := strings.Index(msg, " in")
-	if j > 0 && i > 0 {
-		loc = msg[i+3 : j]
-		hood = msg[j+3 : l]
-		hood = strings.TrimSpace(hood)
-		tokens := strings.Split(hood, " ")
-		if len(tokens) == 2 {
-			hood = tokens[0]
-			at = tokens[1]
-		}
-	} else {
-		loc = msg[i+3 : l]
+	loc = msg[i+3 : l]
+	loc = strings.TrimSpace(loc)
+	tokens := strings.Split(loc, " ")
+	if len(tokens) == 2 {
+		loc = tokens[0]
+		at = tokens[1]
 	}
 
-	logger.Infof("%s, %s, %s, %s", cmd, loc, hood, at)
-	return cmd, loc, hood, at, nil
+	logger.Infof("%s, %s, %s", cmd, loc, at)
+	return cmd, loc, at, nil
 }
 
 func showHelp(channel string) {
 	title := "You can ask me"
 	commands := fmt.Sprintf("%s \n %s \n", helpCmd,
-		findTrucksCmd+" at <location> in <neighborhood> <at> - to see food trucks at a location")
+		findTrucksCmd+" at <location> <today/tomorrow> - to see food trucks at a location")
 	attachment := slack.Attachment{
 		Color:      green,
 		Title:      commands,
