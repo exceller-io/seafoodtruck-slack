@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -17,18 +18,23 @@ import (
 	"github.com/nlopes/slack"
 	"github.com/nlopes/slack/slackevents"
 
+	"github.com/appsbyram/seafoodtruck-slack/pkg"
+
 	"go.uber.org/zap"
 )
 
 const (
 	contentTypeHeader         = "Content-Type"
 	contentTypeFormURLEncoded = "application/x-www-form-urlencoded"
-	s3BucketURL               = "https://s3-us-west-2.amazonaws.com/seattlefoodtruck-uploads-prod"
+	searchURL                 = "https://www.seattlefoodtruck.com/search/%s"
+	s3BucketURL               = "https://s3-us-west-2.amazonaws.com/seattlefoodtruck-uploads-prod/%s"
+	locationScheduleURL       = "https://www.seattlefoodtruck.com/schedule/%s"
+	truckURL                  = "https://www.seattlefoodtruck.com/food-trucks/%s"
 	helpCmd                   = "help"
-	showNeighborhoodsCmd      = "show neighborhoods"
-	showLocationsCmd          = "show locations"
-	showTrucksCmd             = "show trucks"
-	green                     = "#00FF00"
+	findTrucksCmd             = "find trucks"
+	green                     = "#36a64f"
+	today                     = "today"
+	tomorrow                  = "tomorrow"
 )
 
 var (
@@ -40,17 +46,22 @@ var (
 	ctx              = context.Background()
 	token            string
 	api              *slack.Client
+	proxy            pkg.API
 )
 
 func init() {
 	token = os.Getenv("TOKEN")
-	logger := logging.FromContext(ctx)
-	logger.Infof("Token %s", token)
 	api = slack.New(token)
+	proxy = pkg.API{
+		Scheme:     "https",
+		Host:       "www.seattlefoodtruck.com",
+		BasePath:   "/api",
+		HttpClient: http.DefaultClient,
+	}
 }
 
 func main() {
-	logger := logging.FromContext(ctx)
+	logger = logging.FromContext(ctx)
 	logger.Info("START***")
 	r := mux.NewRouter()
 	r.Methods("POST").
@@ -86,8 +97,6 @@ func main() {
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	logger := logging.FromContext(ctx)
-
 	payload, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		logger.Errorw("Error reading payload posted in http request", zap.Any("exception", err))
@@ -113,50 +122,129 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		innerEvent := event.InnerEvent
 		switch ev := innerEvent.Data.(type) {
 		case *slackevents.AppMentionEvent:
-			//api.PostMessage(ev.Channel, slack.MsgOptionText("Yes, hello.", false))
 			respond(ev)
 		}
 		break
 	}
 }
 
-func attachment(fb, color, title, text, footer string, fields []slack.AttachmentField) slack.Attachment {
-	attachment := slack.Attachment{
-		Fallback:   fb,
-		Color:      color,
-		Title:      title,
-		Text:       text,
-		Footer:     footer,
-		FooterIcon: "https://platform.slack-edge.com/img/default_application_icon.png",
-		Fields:     fields,
-	}
-	return attachment
+func formatDate(t time.Time) string {
+	loc, _ := time.LoadLocation("America/Los_Angeles")
+	t = t.In(loc)
+	return t.Format(time.RFC822)
 }
 
 func respond(event *slackevents.AppMentionEvent) {
-	logger := logging.FromContext(ctx)
+	var loc, hood, at string
+	var err error
+
+	logger.Infof("Channel: %s", event.Channel)
 	text := event.Text
 	i := strings.Index(text, ">")
 
 	text = text[i+1 : len(text)]
-	text = strings.TrimSpace(text)
-	text = strings.ToLower(text)
 	logger.Infof("Text %s", text)
-
+	if strings.Contains(text, findTrucksCmd) {
+		if text, loc, hood, at, err = parseTokensFromMsg(text); err != nil {
+			logger.Errorf("Error parsing message: %v", zap.Any("Error", err))
+		}
+	}
+	text = strings.TrimSpace(text)
 	switch text {
 	case helpCmd:
 		showHelp(event.Channel)
 		break
+	case findTrucksCmd:
+		findTrucks(event.Channel, loc, hood, at)
+		break
+	default:
+		api.PostMessage(event.Channel, slack.MsgOptionText("Sorry I cannot help you with this, please try help to see things you can ask me",
+			false))
 	}
 }
 
+func findTrucks(channel, loc, hood, at string) {
+	var locs = []string{loc}
+	if len(loc) > 0 && len(hood) > 0 {
+		locations, err := proxy.FindTrucks(hood, locs, at)
+		if err != nil {
+			logger.Infof("Error finding trucks: %v", zap.Any("error", err))
+		}
+		logger.Infof("Locations : %v", len(locations))
+		for _, l := range locations {
+			for _, e := range l.Events {
+				st, _ := time.Parse(time.RFC3339, e.StartTime)
+				et, _ := time.Parse(time.RFC3339, e.EndTime)
+				_, m, d := st.Date()
+
+				title := fmt.Sprintf("*%s* \t %v %v %v - %v \n",
+					l.Name, m, d, st.Format(time.Kitchen), et.Format(time.Kitchen))
+
+				var attachments []slack.Attachment
+				for _, t := range e.Trucks {
+					var fields []slack.AttachmentField
+					fields = append(fields, slack.AttachmentField{
+						Title: "Food Categories",
+						Value: strings.Join(t.FoodCategories, ","),
+					})
+					attachment := slack.Attachment{
+						Color:      green,
+						AuthorName: t.Name,
+						AuthorLink: fmt.Sprintf(s3BucketURL, t.FeaturedPhoto),
+						Title:      t.ID,
+						TitleLink:  fmt.Sprintf(truckURL, t.ID),
+						Fields:     fields,
+					}
+					attachments = append(attachments, attachment)
+				}
+				api.PostMessage(channel, slack.MsgOptionText(title, false), slack.MsgOptionAttachments(attachments...))
+				attachments = attachments[:0]
+			}
+		}
+	} else {
+		api.PostMessage(channel, slack.MsgOptionText("To find trucks location and neighborhood is required.",
+			false))
+	}
+}
+
+func parseTokensFromMsg(msg string) (string, string, string, string, error) {
+	var cmd, loc, hood, at string
+	l := len(msg)
+	if l == 0 {
+		return "", "", "", "", errors.New("Message is empty, nothing to do")
+	}
+	i := strings.Index(msg, " at")
+	if i > 0 {
+		cmd = msg[0:i]
+		cmd = strings.ToLower(cmd)
+		cmd = strings.TrimSpace(cmd)
+	}
+	j := strings.Index(msg, " in")
+	if j > 0 && i > 0 {
+		loc = msg[i+3 : j]
+		hood = msg[j+3 : l]
+		hood = strings.TrimSpace(hood)
+		tokens := strings.Split(hood, " ")
+		if len(tokens) == 2 {
+			hood = tokens[0]
+			at = tokens[1]
+		}
+	} else {
+		loc = msg[i+3 : l]
+	}
+
+	logger.Infof("%s, %s, %s, %s", cmd, loc, hood, at)
+	return cmd, loc, hood, at, nil
+}
+
 func showHelp(channel string) {
-	title := "*You can ask me*"
-	commands := fmt.Sprintf("%s \n %s \n %s \n %s", helpCmd, showNeighborhoodsCmd, showLocationsCmd, showTrucksCmd)
+	title := "You can ask me"
+	commands := fmt.Sprintf("%s \n %s \n", helpCmd,
+		findTrucksCmd+" at <location> in <neighborhood> <at> - to see food trucks at a location")
 	attachment := slack.Attachment{
-		Title:      commands,
 		Color:      green,
-		Footer:     "Slack API",
+		Title:      commands,
+		Footer:     "Slack Events API | " + formatDate(time.Now()),
 		FooterIcon: "https://platform.slack-edge.com/img/default_application_icon.png",
 	}
 	api.PostMessage(channel, slack.MsgOptionText(title, false), slack.MsgOptionAttachments(attachment))
