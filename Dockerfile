@@ -15,7 +15,7 @@ RUN go test $(go list ./...) -cover \
     && GIT_COMMIT_ID=$(git rev-list -1 HEAD) \
     && CGO_ENABLED=0 GOOS=${OS} GOARCH=${ARCH} go build --ldflags "-s -w \
     -X github.com/appsbyram/seafoodtruck-slack/version.Version=${VERSION} \
-    -X github.com/appsbyram/seafoodtruck-slack/version.GitCommitID=${GIT_COMMIT_ID} \
+    -X github.com/appsbyram/seafoodtruck-slack/version.GitCommitID=${GIT_COMMIT_ID}" \
     -a -installsuffix cgo -o bot
 
 FROM alpine:latest
