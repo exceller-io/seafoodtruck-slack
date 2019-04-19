@@ -13,11 +13,9 @@ RUN test -z "$(gofmt -l $(find . -type f -name '*.go' -not -path "./vendor/*"))"
 RUN go test $(go list ./...) -cover \
     && VERSION=$(git describe --all --exact-match `git rev-parse HEAD` | grep tags | sed 's/tags\///') \
     && GIT_COMMIT_ID=$(git rev-list -1 HEAD) \
-    && GIT_COMMIT_DESC=$(git log -1) \
     && CGO_ENABLED=0 GOOS=${OS} GOARCH=${ARCH} go build --ldflags "-s -w \
     -X github.com/appsbyram/seafoodtruck-slack/version.Version=${VERSION} \
     -X github.com/appsbyram/seafoodtruck-slack/version.GitCommitID=${GIT_COMMIT_ID} \
-    -X github.com/appsbyram/seafoodtruck-slack/version.GitCommitDescription=${GIT_COMMIT_DESC}" \
     -a -installsuffix cgo -o bot
 
 FROM alpine:latest
