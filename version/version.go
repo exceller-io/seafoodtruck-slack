@@ -1,5 +1,5 @@
 package version
 
 var (
-	Version, GitCommitDescription string
+	Version, GitCommitID, GitCommitDescription string
 )

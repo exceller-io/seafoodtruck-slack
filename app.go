@@ -107,8 +107,9 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		json := fmt.Sprintf(`{
 			"Version": "%s",
+			"GitCommitID": "%s",
 			"GitCommitDescription": "%s"
-		}`, version.Version, version.GitCommitDescription)
+		}`, version.Version, version.GitCommitID, version.GitCommitDescription)
 
 		buffer = []byte(json)
 		w.Write(buffer)
