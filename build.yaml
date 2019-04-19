@@ -1,0 +1,27 @@
+steps:
+  #Build container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+    - 'build'
+    - '-t'
+    - 'gcr.io/$PROJECT_ID/foodtruckseattle'
+    - '.'
+  #push container image to registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/foodtruckseattle:latest'
+  #deploy to GCP
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'beta' 
+      - 'run'
+      - 'deploy'
+      - 'foodtruckseattle'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/foodtruckseattle:latest'
+      - '--region'
+      - 'us-central1'
+      - '--allow-unauthenticated'
+images: 
+- 'gcr.io/$PROJECT_ID/foodtruckseattle:latest'

@@ -13,12 +13,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appsbyram/pkg/logging"
 	"github.com/gorilla/mux"
 	"github.com/nlopes/slack"
 	"github.com/nlopes/slack/slackevents"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/appsbyram/seafoodtruck-slack/pkg"
+	"github.com/appsbyram/seafoodtruck-slack/version"
 
 	"go.uber.org/zap"
 )
@@ -38,12 +39,10 @@ const (
 )
 
 var (
-	addr             = flag.String("listen-address", ":80", "The address to listen on for HTTP requests.")
+	addr             = flag.String("listen-address", ":8080", "The address to listen on for HTTP requests.")
 	wait             time.Duration
 	home, configName string
 	srv              *http.Server
-	logger           *zap.SugaredLogger
-	ctx              = context.Background()
 	token            string
 	api              *slack.Client
 	proxy            pkg.API
@@ -61,12 +60,16 @@ func init() {
 }
 
 func main() {
-	logger = logging.FromContext(ctx)
-	logger.Info("START***")
+	log.Info("START***")
 	r := mux.NewRouter()
 	r.Methods("POST").
 		Path("/").
-		Name("Home").
+		Name("HomePost").
+		HandlerFunc(homeHandler)
+
+	r.Methods("GET").
+		Path("/").
+		Name("HomeGet").
 		HandlerFunc(homeHandler)
 
 	srv = &http.Server{
@@ -77,9 +80,9 @@ func main() {
 		Handler:      r,
 	}
 	go func() {
-		logger.Debugf("Server listening on port %s \n", *addr)
+		log.Debugf("Server listening on port %s \n", *addr)
 		if err := srv.ListenAndServe(); err != nil {
-			logger.Errorw("Error starting the server %v", zap.Any("exception", err))
+			log.Errorf("Error starting the server %v", err)
 		}
 	}()
 
@@ -91,39 +94,56 @@ func main() {
 	defer cancel()
 
 	srv.Shutdown(ctx)
-	logger.Info("END***")
+	log.Info("END***")
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
+	var buffer []byte
+	method := strings.ToLower(r.Method)
 
-	payload, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		logger.Errorw("Error reading payload posted in http request", zap.Any("exception", err))
-		http.Error(w, "Error reading payload from request", http.StatusBadRequest)
-	}
+	switch method {
+	case "get":
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json := fmt.Sprintf(`{
+			"Version": "%s",
+			"GitCommitDescription": "%s"
+		}`, version.Version, version.GitCommitDescription)
 
-	event, err := slackevents.ParseEvent(json.RawMessage(payload), slackevents.OptionNoVerifyToken())
-	if err != nil {
-		logger.Errorw("Error parsing to slack event from payload", zap.Any("exception", err))
-		http.Error(w, "Error parsing event", http.StatusInternalServerError)
-	}
-	switch event.Type {
-	case slackevents.URLVerification:
-		var r *slackevents.ChallengeResponse
-		err := json.Unmarshal(payload, &r)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-		w.Header().Set(contentTypeHeader, contentTypeFormURLEncoded)
-		w.Write([]byte(r.Challenge))
+		buffer = []byte(json)
+		w.Write(buffer)
 		break
-	case slackevents.CallbackEvent:
-		fmt.Print("Received event")
-		innerEvent := event.InnerEvent
-		switch ev := innerEvent.Data.(type) {
-		case *slackevents.AppMentionEvent:
-			respond(ev)
+	case "post":
+		defer r.Body.Close()
+		payload, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			log.Errorf("Error reading payload posted in http request %v", err)
+			http.Error(w, "Error reading payload from request", http.StatusBadRequest)
+		}
+
+		event, err := slackevents.ParseEvent(json.RawMessage(payload), slackevents.OptionNoVerifyToken())
+		if err != nil {
+			log.Errorf("Error parsing to slack event from payload %v", err)
+			http.Error(w, "Error parsing event", http.StatusInternalServerError)
+		}
+		switch event.Type {
+		case slackevents.URLVerification:
+			var r *slackevents.ChallengeResponse
+			err := json.Unmarshal(payload, &r)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			w.Header().Set(contentTypeHeader, contentTypeFormURLEncoded)
+			w.Write([]byte(r.Challenge))
+			break
+		case slackevents.CallbackEvent:
+			log.Info("Received event")
+			innerEvent := event.InnerEvent
+			switch ev := innerEvent.Data.(type) {
+			case *slackevents.AppMentionEvent:
+				respond(ev)
+			}
+			break
 		}
 		break
 	}
@@ -139,15 +159,15 @@ func respond(event *slackevents.AppMentionEvent) {
 	var loc, at string
 	var err error
 
-	logger.Infof("Channel: %s", event.Channel)
+	log.Infof("Channel: %s", event.Channel)
 	text := event.Text
 	i := strings.Index(text, ">")
 
 	text = text[i+1 : len(text)]
-	logger.Infof("Text %s", text)
+	log.Infof("Text %s", text)
 	if strings.Contains(text, findTrucksCmd) {
 		if text, loc, at, err = parseTokensFromMsg(text); err != nil {
-			logger.Errorf("Error parsing message: %v", zap.Any("Error", err))
+			log.Errorf("Error parsing message: %v", zap.Any("Error", err))
 		}
 	}
 	text = strings.TrimSpace(text)
@@ -172,28 +192,28 @@ func findTrucks(channel, loc, at string) {
 	var err error
 
 	if l, err = proxy.GetLocation(loc); err != nil {
-		logger.Errorw("Error getting location: %v", zap.Any("error", err))
+		log.Errorf("Error getting location: %v", err)
 		api.PostMessage(channel,
 			slack.MsgOptionText("Sorry having issues processing your request. Please try again...", false))
 		return
 	}
-	logger.Infof("Neighborhood ID %v for location: %s", l.Neighborhood.ID, loc)
+	log.Infof("Neighborhood ID %v for location: %s", l.Neighborhood.ID, loc)
 	if n, err = proxy.GetNeighborhood(l.Neighborhood.ID); err != nil {
-		logger.Errorw("Error getting neighborhood for identifier %s %v", l.Neighborhood.ID, zap.Any("error", err))
+		log.Errorf("Error getting neighborhood for identifier %v %v", l.Neighborhood.ID, err)
 		api.PostMessage(channel,
 			slack.MsgOptionText("Sorry having issues processing your request, please try again...", false))
 		return
 	}
 	hood = n.ID
-	logger.Infof("Got neighborhood id %s. Now finding events booked at location", n.ID)
+	log.Infof("Got neighborhood id %s. Now finding events booked at location", n.ID)
 	if len(loc) > 0 {
 		locations, err := proxy.FindTrucks(hood, locs, at)
 		if err != nil {
-			logger.Errorw("Error finding trucks: %v", zap.Any("error", err))
+			log.Errorf("Error finding trucks: %v", err)
 		}
-		logger.Infof("Locations : %v", len(locations))
+		log.Infof("Locations : %v", len(locations))
 		for _, l := range locations {
-			logger.Infof("Events %v booked at location %s", len(l.Events), l.Name)
+			log.Infof("Events %v booked at location %s", len(l.Events), l.Name)
 			for _, e := range l.Events {
 				st, _ := time.Parse(time.RFC3339, e.StartTime)
 				et, _ := time.Parse(time.RFC3339, e.EndTime)
@@ -249,7 +269,7 @@ func parseTokensFromMsg(msg string) (string, string, string, error) {
 		at = tokens[1]
 	}
 
-	logger.Infof("%s, %s, %s", cmd, loc, at)
+	log.Infof("%s, %s, %s", cmd, loc, at)
 	return cmd, loc, at, nil
 }
 
