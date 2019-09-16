@@ -26,12 +26,16 @@ const (
 
 	//LocationResourcePath represents path to retrieve a location resource
 	LocationResourcePath = "locations/%s"
+
+	//TruckResourcePath represents path to retrieve truck
+	TruckResourcePath = "trucks/%s"
 )
 
 //FoodTruckClient represents generic interface for Seattle FoodTruck API client
 type FoodTruckClient interface {
 	GetEvents(id string, onDay string) ([]Event, error)
 	GetLocation(id string) (Location, error)
+	GetTruck(id string) (Truck, error)
 }
 
 type foodTruckClient struct {
@@ -83,40 +87,7 @@ func (c *foodTruckClient) GetEvents(id string, on string) ([]Event, error) {
 	endpoint := fmt.Sprintf("%s://%s%s/%s", c.scheme, c.host, c.basePath, EventsResourcePath)
 	c.logger.Infof("Endpoint: %s", endpoint)
 
-	url, err := url.Parse(endpoint)
-	if err != nil {
-		c.logger.Errorw("Invalid URL", zap.Error(err))
-		return nil, err
-	}
-
-	// Adding Query Param
-	c.logger.Info("Adding query parameters")
-	query := url.Query()
-	for k, v := range qs {
-		c.logger.Infof("Name: %s Value: %s", k, v)
-		query.Add(k, v)
-	}
-
-	//encode and add to url
-	url.RawQuery = query.Encode()
-
-	//setup request
-	req, err := http.NewRequest(http.MethodGet, url.String(), nil)
-	if err != nil {
-		c.logger.Errorw("Error setting up http request", zap.Error(err))
-		return nil, err
-	}
-
-	//call api
-	resp, err := c.client.Do(req)
-	if err != nil {
-		c.logger.Errorw("Error calling API", zap.Error(err))
-		return nil, err
-	}
-	c.logger.Info("Reading payload from response")
-
-	p := ws.NewPayload()
-	p.ReadResponse(ws.ContentTypeJSON, &evr, resp)
+	callAPI(endpoint, qs, c.client, &evr)
 
 	return evr.Events, nil
 }
@@ -127,34 +98,56 @@ func (c *foodTruckClient) GetLocation(id string) (Location, error) {
 	if len(id) == 0 {
 		return l, errors.New("Location ID is missing")
 	}
-
 	endpoint := fmt.Sprintf("%s://%s%s/%s", c.scheme, c.host, c.basePath, fmt.Sprintf(LocationResourcePath, id))
 	c.logger.Infof("Endpoint: %s", endpoint)
 
-	url, err := url.Parse(endpoint)
+	callAPI(endpoint, nil, c.client, &l)
+
+	return l, nil
+}
+
+func (c *foodTruckClient) GetTruck(id string) (Truck, error) {
+	var t Truck
+	if len(id) == 0 {
+		return t, errors.New("Truck ID is required")
+	}
+	endpoint := fmt.Sprintf("%s://%s%s/%s", c.scheme, c.host, c.basePath, fmt.Sprintf(TruckResourcePath, id))
+	c.logger.Infof("Endpoint: %s", endpoint)
+
+	callAPI(endpoint, nil, c.client, &t)
+
+	return t, nil
+}
+
+func callAPI(endPoint string, qs map[string]string, client *http.Client, data interface{}) error {
+	url, err := url.Parse(endPoint)
 	if err != nil {
-		c.logger.Errorw("Invalid URL", zap.Error(err))
-		return l, err
+		return err
+	}
+	if qs != nil {
+		query := url.Query()
+		for k, v := range qs {
+			query.Add(k, v)
+		}
+		//encode and add to url
+		url.RawQuery = query.Encode()
 	}
 	//setup request
 	req, err := http.NewRequest(http.MethodGet, url.String(), nil)
 	if err != nil {
-		c.logger.Errorw("Error setting up http request", zap.Error(err))
-		return l, err
+		return err
 	}
 
 	//call api
-	resp, err := c.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
-		c.logger.Errorw("Error calling API", zap.Error(err))
-		return l, err
+		return err
 	}
-	c.logger.Info("Reading payload from response")
 
 	p := ws.NewPayload()
-	p.ReadResponse(ws.ContentTypeJSON, &l, resp)
+	p.ReadResponse(ws.ContentTypeJSON, &data, resp)
 
-	return l, nil
+	return nil
 }
 
 //EventsResponse is response from events api
@@ -228,6 +221,84 @@ type Location struct {
 		HealthRequired          bool        `json:"health_required"`
 		HealthSnohomishRequired interface{} `json:"health_snohomish_required"`
 	} `json:"pod"`
+}
+
+//Truck represents a food truck
+type Truck struct {
+	Name                      string      `json:"name"`
+	Rating                    float64     `json:"rating"`
+	UserID                    int         `json:"user_id"`
+	Featured                  bool        `json:"featured"`
+	RatingCount               int         `json:"rating_count"`
+	ID                        string      `json:"id"`
+	UID                       int         `json:"uid"`
+	FeaturedPhoto             string      `json:"featured_photo"`
+	Facebook                  string      `json:"facebook"`
+	CreatedAt                 string      `json:"created_at"`
+	UpdatedAt                 string      `json:"updated_at"`
+	Twitter                   string      `json:"twitter"`
+	Instagram                 string      `json:"instagram"`
+	Yelp                      string      `json:"yelp"`
+	Description               string      `json:"description"`
+	Phone                     string      `json:"phone"`
+	Email                     string      `json:"email"`
+	Website                   string      `json:"website"`
+	Active                    bool        `json:"active"`
+	ContactName               string      `json:"contact_name"`
+	TruckLength               int         `json:"truck_length"`
+	TruckWidth                int         `json:"truck_width"`
+	Trailer                   bool        `json:"trailer"`
+	AcceptsCreditCards        bool        `json:"accepts_credit_cards"`
+	GlutenFree                bool        `json:"gluten_free"`
+	Vegetarian                bool        `json:"vegetarian"`
+	Vegan                     bool        `json:"vegan"`
+	Paleo                     bool        `json:"paleo"`
+	FutureBookings            int         `json:"future_bookings"`
+	FuturePodEvents           int         `json:"future_pod_events"`
+	Coi                       string      `json:"coi"`
+	CoiExpiration             string      `json:"coi_expiration"`
+	CoiStatus                 string      `json:"coi_status"`
+	CoiApproved               bool        `json:"coi_approved"`
+	Health                    string      `json:"health"`
+	HealthExpiration          string      `json:"health_expiration"`
+	HealthStatus              string      `json:"health_status"`
+	HealthApproved            bool        `json:"health_approved"`
+	W9                        string      `json:"w9"`
+	W9Expiration              interface{} `json:"w9_expiration"`
+	W9Status                  string      `json:"w9_status"`
+	W9Approved                bool        `json:"w9_approved"`
+	HealthSnohomish           string      `json:"health_snohomish"`
+	HealthSnohomishExpiration string      `json:"health_snohomish_expiration"`
+	HealthSnohomishStatus     string      `json:"health_snohomish_status"`
+	HealthSnohomishApproved   bool        `json:"health_snohomish_approved"`
+	MenuItems                 []struct {
+		Name        string  `json:"name"`
+		Description string  `json:"description"`
+		Price       float64 `json:"price"`
+		ID          int     `json:"id"`
+	} `json:"menu_items"`
+	Photos []struct {
+		ID       int    `json:"id"`
+		File     string `json:"file"`
+		Position int    `json:"position"`
+	} `json:"photos"`
+	RelatedTrucks []struct {
+		Name           string  `json:"name"`
+		Rating         float64 `json:"rating"`
+		RatingCount    int     `json:"rating_count"`
+		ID             string  `json:"id"`
+		FeaturedPhoto  string  `json:"featured_photo"`
+		FoodCategories []struct {
+			Name string `json:"name"`
+			ID   string `json:"id"`
+			UID  int    `json:"uid"`
+		} `json:"food_categories"`
+	} `json:"related_trucks"`
+	FoodCategories []struct {
+		Name string `json:"name"`
+		ID   string `json:"id"`
+		UID  int    `json:"uid"`
+	} `json:"food_categories"`
 }
 
 func trimSpaceAndLower(s string) string {

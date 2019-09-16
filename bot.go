@@ -196,7 +196,7 @@ func respond(event *slackevents.AppMentionEvent) {
 		showHelp(event.Channel)
 		break
 	case findEventsCmd:
-		findEvents(event.Channel, day)
+		postEvents(event.Channel, day)
 		break
 	default:
 		api.PostMessage(event.Channel, slack.MsgOptionText("Sorry I cannot help you with this, please try help to see things you can ask me",
@@ -204,7 +204,7 @@ func respond(event *slackevents.AppMentionEvent) {
 	}
 }
 
-func findEvents(channel, day string) {
+func postEvents(channel, day string) {
 	var forLocations []string
 	var err error
 	var events []seattlefoodtruck.Event
@@ -256,7 +256,14 @@ func findEvents(channel, day string) {
 					var sb strings.Builder
 
 					tURL := fmt.Sprintf(truckURL, b.Truck.ID)
-					sb.WriteString(fmt.Sprintf("*<%s|%s>*\n", tURL, b.Truck.Name))
+					sb.WriteString(fmt.Sprintf("*<%s|%s>* ", tURL, b.Truck.Name))
+
+					//get truck details
+					if truck, err := proxy.GetTruck(b.Truck.ID); err == nil {
+						sb.WriteString(fmt.Sprintf(":star::star::star::star::star: (%.1f) %v reviews",
+							truck.Rating, truck.RatingCount))
+					}
+					sb.WriteString("\n")
 					for _, fc := range b.Truck.FoodCategories {
 						emoji := emojiMapping[fc]
 						sb.WriteString(fmt.Sprintf("%s %s\n", emoji, fc))
