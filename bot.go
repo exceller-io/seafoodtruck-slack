@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/nlopes/slack"
 	"github.com/nlopes/slack/slackevents"
+	"github.com/robfig/cron"
 
 	s "github.com/appsbyram/pkg/http"
 	"github.com/appsbyram/pkg/logging"
@@ -35,6 +37,8 @@ const (
 	green                     = "#36a64f"
 	today                     = "today"
 	tomorrow                  = "tomorrow"
+	blackStar                 = "★"
+	whiteStar                 = "☆"
 )
 
 var (
@@ -80,13 +84,18 @@ var (
 		"Mediterranean":   ":stuffed_flatbread:",
 		"Middle Eastern":  ":stuffed_flatbread:",
 	}
-	logger   *zap.SugaredLogger
-	logLevel zap.AtomicLevel
+	logger    *zap.SugaredLogger
+	logLevel  zap.AtomicLevel
+	channel   string
+	c         *cron.Cron
+	locations string
 )
 
 func init() {
 	token = os.Getenv("TOKEN")
 	api = slack.New(token)
+	channel = os.Getenv("CHANNEL")
+	locations = os.Getenv("LOCATION_IDS")
 
 	flag.StringVar(&addr, "listen-address", ":8080", "The address to listen on for HTTP requests.")
 }
@@ -110,6 +119,10 @@ func main() {
 			homeHandler,
 		},
 	}
+
+	//start cron
+	startJob()
+
 	srv := s.NewServer(addr, false, "", "", routes)
 	srv.Start()
 }
@@ -210,8 +223,7 @@ func postEvents(channel, day string) {
 	var events []seattlefoodtruck.Event
 	var loc seattlefoodtruck.Location
 
-	ids := os.Getenv("LOCATION_IDS")
-	forLocations = strings.Split(ids, ",")
+	forLocations = strings.Split(locations, ",")
 
 	if len(forLocations) > 0 {
 		for i, id := range forLocations {
@@ -245,8 +257,9 @@ func postEvents(channel, day string) {
 				et, _ := time.Parse(time.RFC3339, e.EndTime)
 				_, m, d := st.Date()
 				trucks := len(e.Bookings)
+				wd := st.Weekday()
 
-				sh := fmt.Sprintf("%v %v %v Trucks From %v To %v", m, d, trucks, st.Format(time.Kitchen), et.Format(time.Kitchen))
+				sh := fmt.Sprintf("*%v truck(s)* on %s, %v %v from %v–%v ", trucks, wd.String()[0:3], m, d, st.Format(time.Kitchen), et.Format(time.Kitchen))
 				shtb := slack.NewTextBlockObject("mrkdwn", sh, false, false)
 				shsb := slack.NewSectionBlock(shtb, nil, nil)
 				msg = slack.AddBlockMessage(msg, shsb)
@@ -260,7 +273,7 @@ func postEvents(channel, day string) {
 
 					//get truck details
 					if truck, err := proxy.GetTruck(b.Truck.ID); err == nil {
-						sb.WriteString(fmt.Sprintf(":star::star::star::star::star: (%.1f) %v reviews",
+						sb.WriteString(fmt.Sprintf("%s (%.1f) %v reviews", getRating(truck.Rating),
 							truck.Rating, truck.RatingCount))
 					}
 					sb.WriteString("\n")
@@ -335,4 +348,34 @@ func MsgOptionBlocks(msg slack.Message) slack.MsgOption {
 		}),
 		slack.MsgOptionPost(),
 	)
+}
+
+func getRating(rating float64) string {
+	var sb strings.Builder
+	r := round(rating)
+	for i := 1; i <= 5; i++ {
+		if i <= r {
+			sb.WriteString(blackStar)
+		} else {
+			sb.WriteString(whiteStar)
+		}
+	}
+	return sb.String()
+}
+
+func round(num float64) int {
+	return int(num + math.Copysign(0.5, num))
+}
+
+func startJob() {
+	if len(locations) > 0 && len(token) > 0 && len(channel) > 0 {
+		c = cron.New()
+		c.AddFunc("0 0 8 ? * MON-FRI", func() {
+			postEvents(channel, "today")
+		})
+		logger.Info("Starting cron job")
+		c.Start()
+	} else {
+		logger.Warn("Cannot start cron job due to missing config values")
+	}
 }
