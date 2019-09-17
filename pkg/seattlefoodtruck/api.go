@@ -71,12 +71,17 @@ func (c *foodTruckClient) GetEvents(id string, on string) ([]Event, error) {
 
 	switch on {
 	case Tomorrow:
-		onDay = time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+		t := time.Now().AddDate(0, 0, 1)
+		onDay = fmt.Sprintf("%v-%v-%v", t.Year(), t.Month(), t.Day())
 		break
 	default:
-		onDay = time.Now().Format("2006-01-02")
+		n := time.Now()
+		onDay = fmt.Sprintf("%v-%v-%v", n.Year(), n.Month(), n.Day())
 		break
 	}
+
+	c.logger.Infof("On day: %s", onDay)
+
 	qs := map[string]string{
 		"include_bookings":    "true",
 		"with_active_trucks":  "true",

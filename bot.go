@@ -118,6 +118,12 @@ func main() {
 			"/",
 			homeHandler,
 		},
+		s.Route{
+			"EventsGet",
+			"GET",
+			"/events",
+			eventsHandler,
+		},
 	}
 
 	//start cron
@@ -125,6 +131,18 @@ func main() {
 
 	srv := s.NewServer(addr, false, "", "", routes)
 	srv.Start()
+}
+
+func eventsHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	day := r.URL.Query().Get("day")
+
+	events, err := proxy.GetEvents(id, day)
+	if err != nil {
+		http.Error(w, "Error getting events", http.StatusInternalServerError)
+	}
+	p := s.NewPayload()
+	p.WriteResponse(s.ContentTypeJSON, 200, &events, w)
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
@@ -183,8 +201,12 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func formatDate(t time.Time) string {
-	loc, _ := time.LoadLocation("America/Los_Angeles")
-	t = t.In(loc)
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		logger.Errorw("Error loading location", zap.Error(err))
+	} else {
+		t = t.In(loc)
+	}
 	return t.Format(time.RFC822)
 }
 
@@ -371,7 +393,7 @@ func startJob() {
 	if len(locations) > 0 && len(token) > 0 && len(channel) > 0 {
 		c = cron.New()
 		c.AddFunc("0 0 8 ? * MON-FRI", func() {
-			postEvents(channel, "today")
+			postEvents(channel, today)
 		})
 		logger.Info("Starting cron job")
 		c.Start()

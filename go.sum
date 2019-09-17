@@ -6,6 +6,8 @@ github.com/appsbyram/pkg v0.0.0-20190915013509-810da7284e22 h1:GBsyrCo6Y9vcYd0S9
 github.com/appsbyram/pkg v0.0.0-20190915013509-810da7284e22/go.mod h1:+dVNgq5ZGrnGeS9w9y+s3sdStkDJRbVJ3PKO3McSfm0=
 github.com/appsbyram/pkg v0.0.0-20190916202154-699ed99ee951 h1:DI0w45lEY9kZe7zkfHMHU55c3MF8IrcrHI73ZKEjlDI=
 github.com/appsbyram/pkg v0.0.0-20190916202154-699ed99ee951/go.mod h1:+dVNgq5ZGrnGeS9w9y+s3sdStkDJRbVJ3PKO3McSfm0=
+github.com/appsbyram/pkg v0.0.0-20190917152251-80fede0fd883 h1:opAqFdQZYvi/mXHvy7hPkwBEiX8xGED6P1I1+e/krc4=
+github.com/appsbyram/pkg v0.0.0-20190917152251-80fede0fd883/go.mod h1:+dVNgq5ZGrnGeS9w9y+s3sdStkDJRbVJ3PKO3McSfm0=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
 github.com/beorn7/perks v1.0.0/go.mod h1:KWe93zE9D1o94FZ5RNwFwVgaQK1VOXiVxmqh+CedLV8=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
