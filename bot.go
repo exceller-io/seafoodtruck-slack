@@ -200,10 +200,10 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func formatDate(t time.Time) string {
+func formatDateAsPST(t time.Time) string {
 	loc, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
-		logger.Errorw("Error loading location", zap.Error(err))
+		logger.Infow("Error loading location", zap.Error(err))
 	} else {
 		t = t.In(loc)
 	}
@@ -350,7 +350,7 @@ func showHelp(channel string) {
 	attachment := slack.Attachment{
 		Color:      green,
 		Title:      commands,
-		Footer:     "Slack Events API | " + formatDate(time.Now()),
+		Footer:     "Slack Events API | " + formatDateAsPST(time.Now()),
 		FooterIcon: "https://platform.slack-edge.com/img/default_application_icon.png",
 	}
 	_, _, err := api.PostMessage(channel, slack.MsgOptionText(title, false), slack.MsgOptionAttachments(attachment))
