@@ -68,7 +68,7 @@ var (
 		"Sushi":           ":sushi:",
 		"Japanese":        ":japan:",
 		"Latin American":  ":earth_americas:",
-		"Breakfast":       "fried_egg:",
+		"Breakfast":       ":fried_egg:",
 		"American":        ":flag-us:",
 		"Southern":        ":face_with_cowboy_hat:",
 		"Caribbean":       ":palm_tree:",
